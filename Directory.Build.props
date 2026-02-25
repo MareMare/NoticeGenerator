@@ -1,0 +1,11 @@
+﻿<!-- 🛠️ Common Properties -->
+<Project>
+  <PropertyGroup Label="Build">
+    <LangVersion>14.0</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <NeutralLanguage>ja-JP</NeutralLanguage>
+    <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>
