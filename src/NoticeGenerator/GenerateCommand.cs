@@ -57,8 +57,7 @@ internal sealed class GenerateSettings : CommandSettings
 internal sealed class GenerateCommand(
     DotnetListRunner dotnetRunner,
     NuGetClient nugetClient,
-    NoticeWriter noticeWriter,
-    SpdxLicenseFetcher licenseFetcher) : AsyncCommand<GenerateSettings>
+    NoticeWriter noticeWriter) : AsyncCommand<GenerateSettings>
 {
     public override async Task<int> ExecuteAsync(CommandContext context, GenerateSettings settings,
         CancellationToken cancellationToken)
@@ -75,8 +74,13 @@ internal sealed class GenerateCommand(
         {
             packages = await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
-                .StartAsync("Running [cyan]dotnet list package[/]...", async _ =>
-                    await dotnetRunner.GetPackagesAsync(settings.Project, settings.Scope, settings.NoVersion))
+                .StartAsync(
+                    "Running [cyan]dotnet list package[/]...",
+                    async _ =>
+                        await dotnetRunner.GetPackagesAsync(
+                            settings.Project,
+                            settings.Scope,
+                            settings.NoVersion))
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
@@ -94,10 +98,9 @@ internal sealed class GenerateCommand(
         AnsiConsole.MarkupLine($"Found [green]{packages.Count}[/] package(s). Fetching metadata from NuGet...");
         AnsiConsole.WriteLine();
 
-        // 2. NuGet API からメタデータ取得（並列）
+        // 2. NuGet API からメタデータ・ライセンス全文を並列取得
         var entries = new List<NoticeEntry>();
         var semaphore = new SemaphoreSlim(settings.Concurrency);
-        //var semaphore = new SemaphoreSlim(1);
         var lockObj = new object();
 
         await AnsiConsole.Progress()
@@ -161,8 +164,8 @@ internal sealed class GenerateCommand(
                     {
                         try
                         {
-                            entry =
- await nugetClient.FetchAsync(pkg.Id, pkg.Version, cancellationToken).ConfigureAwait(false);
+                            entry = await nugetClient.FetchAsync(pkg.Id, pkg.Version, cancellationToken)
+                                .ConfigureAwait(false);
                         }
                         catch (Exception ex)
                         {
@@ -182,14 +185,23 @@ internal sealed class GenerateCommand(
         // 3. 結果サマリー表示
         var succeeded = entries.Count(e => e.Error is null);
         var failed = entries.Count(e => e.Error is not null);
+        var noLicenseText = entries.Count(e => e.Error is null && e.LicenseText is null);
 
         var table = new Table()
             .Border(TableBorder.Rounded)
             .AddColumn("Status")
             .AddColumn("Count");
         table.AddRow("[green]Success[/]", succeeded.ToString());
+        if (noLicenseText > 0)
+        {
+            table.AddRow("[yellow]No license text[/]", noLicenseText.ToString());
+        }
+
         if (failed > 0)
+        {
             table.AddRow("[red]Failed[/]", failed.ToString());
+        }
+
         AnsiConsole.Write(table);
         AnsiConsole.WriteLine();
 
@@ -197,17 +209,26 @@ internal sealed class GenerateCommand(
         {
             AnsiConsole.MarkupLine("[yellow]Packages with errors:[/]");
             foreach (var e in entries.Where(e => e.Error is not null))
+            {
                 AnsiConsole.MarkupLine($"  [red]✗[/] {e.Id} {e.Version}: {e.Error}");
+            }
+
             AnsiConsole.WriteLine();
         }
 
-        // 4. SPDX ライセンス全文を取得して NOTICE.md を書き出し
-        await AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .StartAsync("Fetching [cyan]SPDX license texts[/]...", async _ =>
-                await noticeWriter.WriteAsync(
-                    settings.Output, entries, licenseFetcher, cancellationToken));
+        if (noLicenseText > 0)
+        {
+            AnsiConsole.MarkupLine("[yellow]Packages without license text (manual review recommended):[/]");
+            foreach (var e in entries.Where(e => e.Error is null && e.LicenseText is null))
+            {
+                AnsiConsole.MarkupLine($"  [yellow]⚠[/] {e.Id} {e.Version}");
+            }
 
+            AnsiConsole.WriteLine();
+        }
+
+        // 4. NOTICE.md 書き出し
+        await noticeWriter.WriteAsync(settings.Output, entries, cancellationToken);
         AnsiConsole.MarkupLine($"[green]✓[/] Generated: [bold]{settings.Output}[/]");
 
         return failed > 0 ? 2 : 0; // 2 = partial failure

@@ -11,12 +11,8 @@ using Spectre.Console.Cli;
 
 var services = new ServiceCollection();
 
-// NuGet.Protocol が gzip 展開・キャッシュ・リトライを内部処理するため
-// HttpClient の手動設定は不要
 services.AddSingleton<NuGetClient>();
 services.AddSingleton<NoticeWriter>();
-services.AddSingleton<SpdxLicenseFetcher>();
-// DotnetListRunner は IDisposable（一時展開したスクリプトファイルを Dispose で削除）
 services.AddSingleton<DotnetListRunner>();
 
 var registrar = new TypeRegistrar(services);

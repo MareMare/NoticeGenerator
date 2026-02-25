@@ -11,72 +11,30 @@ namespace NoticeGenerator;
 
 /// <summary>
 /// NoticeEntry のリストを NOTICE.md 形式で書き出す。
-/// 同一 SPDX ライセンスの全文はファイル末尾に1回だけ掲載し、
-/// 各パッケージのセクションからアンカーリンクで参照する。
 /// </summary>
 internal sealed class NoticeWriter
 {
+    // SPDX ライセンスページ URL テンプレート
+    private const string _spdxLicensePageTemplate =
+        "https://spdx.org/licenses/{0}.html";
+
     public async Task WriteAsync(
         string outputPath,
         IEnumerable<NoticeEntry> entries,
-        SpdxLicenseFetcher licenseFetcher,
         CancellationToken ct = default)
     {
         var entryList = entries
             .OrderBy(e => e.Id, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // ---- 1. 必要な SPDX ID を収集してライセンス全文を一括取得 ----
-        var spdxIds = entryList
-            .Select(e => e.LicenseExpression)
-            .Where(e => !string.IsNullOrEmpty(e))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        var licenseTexts = await licenseFetcher.FetchAllAsync(spdxIds, ct)
-            .ConfigureAwait(false);
-
-        // ---- 2. Markdown 生成 ----
         var sb = new StringBuilder();
+        NoticeWriter.WriteHeader(sb);
 
-        WriteHeader(sb);
-
-        // パッケージ一覧セクション
-        sb.AppendLine("## Packages");
-        sb.AppendLine();
-        foreach (var e in entryList)
+        foreach (var entry in entryList)
         {
-            WritePackageEntry(sb, e, licenseTexts);
+            NoticeWriter.WritePackageEntry(sb, entry);
         }
 
-        // ライセンス全文セクション（重複なし・SPDX ID 昇順）
-        var usedLicenses = licenseTexts
-            .Where(kv => kv.Value is not null)
-            .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (usedLicenses.Count > 0)
-        {
-            sb.AppendLine("---");
-            sb.AppendLine();
-            sb.AppendLine("## License Texts");
-            sb.AppendLine();
-            sb.AppendLine("The full text of each license is reproduced below.");
-            sb.AppendLine();
-
-            foreach (var (spdxId, text) in usedLicenses)
-            {
-                // アンカー名は GitHub Markdown の自動生成ルールに合わせる
-                sb.AppendLine($"### {spdxId}");
-                sb.AppendLine();
-                sb.AppendLine("```");
-                sb.AppendLine(text);
-                sb.AppendLine("```");
-                sb.AppendLine();
-            }
-        }
-
-        // ---- 3. ファイル書き出し ----
         var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath));
         if (!string.IsNullOrEmpty(dir))
         {
@@ -84,13 +42,12 @@ internal sealed class NoticeWriter
         }
 
         await File.WriteAllTextAsync(
-            outputPath,
-            sb.ToString(),
-            new UTF8Encoding(false),
-            ct).ConfigureAwait(false);
+                outputPath,
+                sb.ToString(),
+                new UTF8Encoding(false),
+                ct)
+            .ConfigureAwait(false);
     }
-
-    // -------------------------------------------------------
 
     private static void WriteHeader(StringBuilder sb)
     {
@@ -104,14 +61,11 @@ internal sealed class NoticeWriter
         sb.AppendLine();
     }
 
-    private static void WritePackageEntry(
-        StringBuilder sb,
-        NoticeEntry e,
-        IReadOnlyDictionary<string, string?> licenseTexts)
+    private static void WritePackageEntry(StringBuilder sb, NoticeEntry e)
     {
         var header = string.IsNullOrEmpty(e.Version)
-            ? $"### {e.Id}"
-            : $"### {e.Id} {e.Version}";
+            ? $"## [{e.Id}]({e.PackageUrl})"
+            : $"## [{e.Id} {e.Version}]({e.PackageUrl})";
         sb.AppendLine(header);
         sb.AppendLine();
 
@@ -119,9 +73,12 @@ internal sealed class NoticeWriter
         {
             sb.AppendLine($"> ⚠️ **Failed to retrieve metadata:** {e.Error}");
             sb.AppendLine();
+            sb.AppendLine("---");
+            sb.AppendLine();
             return;
         }
 
+        // ---- メタデータ ----
         if (!string.IsNullOrEmpty(e.Copyright))
         {
             sb.AppendLine($"**Copyright:** {e.Copyright}  ");
@@ -132,23 +89,25 @@ internal sealed class NoticeWriter
             sb.AppendLine($"**Authors:** {e.Authors}  ");
         }
 
-        // ライセンス表記：SPDX 式があればライセンス全文セクションへのアンカーリンクを付与
+        // ライセンス表記：取得元に応じてリンク形式を変える
         if (!string.IsNullOrEmpty(e.LicenseExpression))
         {
-            var licenseLink = BuildLicenseLink(e.LicenseExpression, licenseTexts);
-            sb.AppendLine($"**License:** {licenseLink}  ");
+            var licenseDisplay = BuildLicenseDisplay(e);
+            sb.AppendLine($"**License:** {licenseDisplay}  ");
         }
         else if (!string.IsNullOrEmpty(e.LicenseUrl))
         {
             sb.AppendLine($"**License URL:** <{e.LicenseUrl}>  ");
         }
 
-        var repoDisplay = !string.IsNullOrEmpty(e.RepositoryUrl) ? e.RepositoryUrl
-            : !string.IsNullOrEmpty(e.ProjectUrl) ? e.ProjectUrl
-            : null;
-        if (repoDisplay is not null)
+        // リポジトリ URL（.nuspec の <repository url> 優先、なければ ProjectUrl）
+        if (!string.IsNullOrEmpty(e.RepositoryUrl))
         {
-            sb.AppendLine($"**Repository:** <{repoDisplay}>  ");
+            sb.AppendLine($"**Repository:** <{e.RepositoryUrl}>  ");
+        }
+        else if (!string.IsNullOrEmpty(e.ProjectUrl))
+        {
+            sb.AppendLine($"**Repository:** <{e.ProjectUrl}>  ");
         }
 
         if (!string.IsNullOrEmpty(e.Description))
@@ -157,39 +116,87 @@ internal sealed class NoticeWriter
             sb.AppendLine(e.Description);
         }
 
+        // ---- ライセンス全文 ----
+        if (!string.IsNullOrEmpty(e.LicenseText))
+        {
+            sb.AppendLine();
+            sb.AppendLine("<details>");
+            sb.AppendLine("<summary>License Text</summary>");
+            sb.AppendLine();
+            sb.AppendLine("```");
+            sb.AppendLine(e.LicenseText);
+            sb.AppendLine("```");
+            sb.AppendLine();
+            sb.AppendLine("</details>");
+        }
+
+        sb.AppendLine();
+        sb.AppendLine("---");
         sb.AppendLine();
     }
 
     /// <summary>
-    /// SPDX 式中の各IDを、全文が取得できているものはアンカーリンクに変換する。
-    /// 例: "Apache-2.0 OR MIT" → "[Apache-2.0](#apache-20) OR [MIT](#mit)"
+    /// LicenseSource に応じてライセンス表記文字列を生成する。
+    /// 
+    /// NupkgFile      → プレーンテキスト（.nupkg 由来でURL根拠なし）
+    /// 例: MIT
+    /// SpdxExpression → SPDX ページへの Markdown リンク
+    /// 例: [MIT](https://spdx.org/licenses/MIT.html)
+    /// 複合式は各 ID を個別リンクに変換
+    /// 例: [Apache-2.0](https://...) OR [MIT](https://...)
+    /// ExternalUrl    → licenseUrl への Markdown リンク
+    /// 例: [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
+    /// None           → プレーンテキスト
     /// </summary>
-    private static string BuildLicenseLink(
-        string expression,
-        IReadOnlyDictionary<string, string?> licenseTexts)
+    private static string BuildLicenseDisplay(NoticeEntry e) =>
+        e.LicenseSource switch
+        {
+            LicenseSource.NupkgFile =>
+                // .nupkg のファイルから取得 → URL 根拠がないのでプレーンテキスト
+                e.LicenseExpression,
+
+            LicenseSource.SpdxExpression =>
+                // SPDX 式の各 ID を spdx.org ページへのリンクに変換
+                BuildSpdxExpressionLinks(e.LicenseExpression),
+
+            LicenseSource.ExternalUrl when !string.IsNullOrEmpty(e.LicenseUrl) =>
+                // 外部 URL → licenseUrl へのリンク
+                $"[{e.LicenseExpression}]({e.LicenseUrl})",
+
+            _ =>
+                // フォールバック: SPDX 式があれば spdx.org リンク、なければプレーン
+                string.IsNullOrEmpty(e.LicenseExpression)
+                    ? e.LicenseExpression
+                    : BuildSpdxExpressionLinks(e.LicenseExpression),
+        };
+
+    /// <summary>
+    /// SPDX 式（単純・複合どちらも）の各 SPDX ID を spdx.org ページへの
+    /// Markdown リンクに変換する。
+    /// 例: "Apache-2.0 OR MIT"
+    /// → "[Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) OR [MIT](https://spdx.org/licenses/MIT.html)"
+    /// </summary>
+    private static string BuildSpdxExpressionLinks(string expression)
     {
-        // OR / AND / WITH を区切り文字として保持しつつ置換
+        // スペース区切りでトークン化し、SPDX ID のみリンクに変換
+        // 演算子（OR / AND / WITH）と括弧はそのまま保持
         var tokens = expression.Split(' ');
-        var result = new List<string>();
+        var result = new List<string>(tokens.Length);
 
         foreach (var token in tokens)
         {
-            var id = token.Trim('(', ')');
+            var inner = token.Trim('(', ')');
             var prefix = token.StartsWith('(') ? "(" : string.Empty;
             var suffix = token.EndsWith(')') ? ")" : string.Empty;
 
-            if (licenseTexts.TryGetValue(id, out var text) && text is not null)
+            if (inner is "OR" or "AND" or "WITH" || string.IsNullOrEmpty(inner))
             {
-                // GitHub Markdown アンカー: 小文字化・記号除去・スペース→ハイフン
-                var anchor = id.ToLowerInvariant()
-                    .Replace('.', '-')
-                    .Replace('+', '-');
-                result.Add($"{prefix}[{id}](#{anchor}){suffix}");
+                result.Add(token);
             }
             else
             {
-                // 全文が取得できなかった ID はプレーンテキストのまま
-                result.Add(token);
+                var url = string.Format(_spdxLicensePageTemplate, inner);
+                result.Add($"{prefix}[{inner}]({url}){suffix}");
             }
         }
 

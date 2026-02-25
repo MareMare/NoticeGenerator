@@ -2,7 +2,7 @@
   "profiles": {
     "NoticeGenerator": {
       "commandName": "Project",
-      "commandLineArgs": "--project C:\\GitHub\\MareMare\\NoticeGenerator"
+      "commandLineArgs": "-s top --project C:\\GitHub\\MareMare\\NoticeGenerator"
     }
   }
 }
