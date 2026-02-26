@@ -1,0 +1,61 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <PropertyGroup Label="Package">
+    <PackageId>NoticeGenerator</PackageId>
+    <Title>NoticeGenerator</Title>
+    <Version>2026.2.25.0649</Version>
+    <Authors>MareMare</Authors>
+    <Company>MareMare</Company>
+    <Description>.NETプロジェクトのNuGetパッケージ依存関係のライセンス情報を含むNOTICE.mdファイルを生成するツールです。</Description>
+    <Copyright>Copyright © 2026-$([System.DateTime]::Now.ToString(yyyy)) MareMare.</Copyright>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageProjectUrl>https://github.com/MareMare/NoticeGenerator</PackageProjectUrl>
+    <PackageReleaseNotes>https://github.com/MareMare/NoticeGenerator/releases</PackageReleaseNotes>
+    <RepositoryUrl>https://github.com/MareMare/NoticeGenerator</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <!-- Pack as tool -->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>NoticeGenerator</ToolCommandName>
+    <IncludeSymbols>True</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <ApplicationIcon>logo.ico</ApplicationIcon>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(GITHUB_ACTIONS)' == 'true' ">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+  <ItemGroup Label="Additional files">
+    <!-- Include additional files for the NuGet package -->
+    <None Include="$(MSBuildThisFileDirectory)../../LICENSE" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildThisFileDirectory)../../logo.png" Pack="true" PackagePath="" />
+    <None Include="$(MSBuildThisFileDirectory)../../README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="get-packages.ps1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="logo.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="get-packages.ps1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.3" />
+    <PackageReference Include="NuGet.Packaging" Version="7.3.0" />
+    <PackageReference Include="NuGet.Protocol" Version="7.3.0" />
+    <PackageReference Include="Spectre.Console.Cli" Version="0.53.1" />
+  </ItemGroup>
+
+</Project>

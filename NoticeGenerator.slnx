@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/ソリューション項目/">
+    <File Path=".editorconfig" />
+    <File Path=".gitattributes" />
+    <File Path=".gitignore" />
+    <File Path="Directory.Build.props" />
+    <File Path="global.json" />
+    <File Path="README.md" />
+  </Folder>
+  <Project Path="src/NoticeGenerator/NoticeGenerator.csproj" />
+  <Project Path="tests/NoticeGenerator.Tests/NoticeGenerator.Tests.csproj" />
+</Solution>
