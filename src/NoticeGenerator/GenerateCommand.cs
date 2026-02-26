@@ -62,7 +62,9 @@ internal sealed class GenerateCommand(
     public override async Task<int> ExecuteAsync(CommandContext context, GenerateSettings settings,
         CancellationToken cancellationToken)
     {
-        AnsiConsole.Write(new FigletText("Notice Generator").Color(Color.SteelBlue1));
+        //AnsiConsole.Write(new FigletText("Notice Generator").Color(Color.SteelBlue1));
+        AnsiConsole.Write(new Text("Notice Generator", new Style(foreground: Color.SteelBlue1)));
+        AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine($"[bold]Project:[/] {settings.Project}");
         AnsiConsole.MarkupLine($"[bold]Scope:[/]   {settings.Scope}");
         AnsiConsole.MarkupLine($"[bold]Output:[/]  {settings.Output}");
@@ -109,13 +111,13 @@ internal sealed class GenerateCommand(
                 new TaskDescriptionColumn(),
                 new ProgressBarColumn(),
                 new PercentageColumn(),
-                new RemainingTimeColumn(),
-                new SpinnerColumn())
+                new ElapsedTimeColumn(),
+                new SpinnerColumn(Spinner.Known.Dots))
             .StartAsync(async ctx =>
             {
                 var task = ctx.AddTask("Fetching NuGet metadata", maxValue: packages.Count);
 
-#if true
+#if !DEBUG
                 var tasks = packages.Select(async pkg =>
                 {
                     await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);

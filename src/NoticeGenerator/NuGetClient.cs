@@ -5,11 +5,11 @@
 // </copyright>
 // --------------------------------------------------------------------------------------------------------------------
 
-using System.IO.Compression;
 using System.Net;
-using System.Xml.Linq;
 using NuGet.Common;
 using NuGet.Configuration;
+using NuGet.Packaging;
+using NuGet.Packaging.Licenses;
 using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
@@ -17,31 +17,21 @@ using NuGet.Versioning;
 namespace NoticeGenerator;
 
 /// <summary>
-/// NuGet.Protocol + flat container API を使ってパッケージメタデータと
+/// NuGet.Protocol / NuGet.Packaging SDK を使ってパッケージメタデータと
 /// ライセンス全文を取得する。
-/// 
+///
 /// ライセンス全文の取得戦略（優先順）:
-/// 1. .nuspec の &lt;license type="file"&gt; で指定されたファイルを .nupkg から取得
-/// 2. .nuspec の &lt;license type="file"&gt; がなければ既知パターンで .nupkg を探索
-/// 3. .nuspec の &lt;license type="expression"&gt; → SPDX リストから全文取得
+/// 1. nuspec の &lt;license type="file"&gt; で指定されたファイルを .nupkg から取得
+/// 2. &lt;license type="file"&gt; がなければ既知パターンで .nupkg を探索
+/// 3. &lt;license type="expression"&gt; → SPDX リストから全文取得（複合式は全 ID 分）
 /// 4. licenseUrl が外部 URL（licenses.nuget.org 以外）→ URL を直接フェッチ
 /// 5. 取得できなければ null
 /// </summary>
 internal sealed class NuGetClient : IDisposable
 {
-    private const string _nuspecUrlTemplate =
-        "https://api.nuget.org/v3-flatcontainer/{0}/{1}/{0}.nuspec";
-
-    private const string _nupkgUrlTemplate =
-        "https://api.nuget.org/v3-flatcontainer/{0}/{1}/{0}.{1}.nupkg";
-
-    // SPDX ライセンス全文テキスト（Copyright 抜きの標準文）
+    // SPDX ライセンス全文テキスト（GitHub raw）
     private const string _spdxRawUrlTemplate =
         "https://raw.githubusercontent.com/spdx/license-list-data/main/text/{0}.txt";
-
-    // SPDX ライセンスページ（Markdown Link 用）
-    private const string _spdxLicensePageTemplate =
-        "https://spdx.org/licenses/{0}.html";
 
     // .nupkg 内で LICENSE ファイルとして認識する名前パターン（優先順）
     private static readonly string[] _licenseFilePatterns =
@@ -59,7 +49,8 @@ internal sealed class NuGetClient : IDisposable
     ];
 
     private readonly SourceCacheContext _cache;
-    private readonly PackageMetadataResource _metadata;
+    private readonly PackageMetadataResource _metadataResource;
+    private readonly FindPackageByIdResource _findByIdResource;
     private readonly HttpClient _http;
 
     public NuGetClient()
@@ -68,7 +59,8 @@ internal sealed class NuGetClient : IDisposable
 
         var source = new PackageSource("https://api.nuget.org/v3/index.json");
         var repo = Repository.Factory.GetCoreV3(source);
-        this._metadata = repo.GetResource<PackageMetadataResource>();
+        this._metadataResource = repo.GetResource<PackageMetadataResource>();
+        this._findByIdResource = repo.GetResource<FindPackageByIdResource>();
 
         this._http = new HttpClient(new HttpClientHandler
         {
@@ -90,8 +82,9 @@ internal sealed class NuGetClient : IDisposable
             throw new ArgumentException($"Invalid NuGet version: '{version}'");
         }
 
-        // ---- 1. PackageMetadataResource でメタデータ取得 ----
-        var allMeta = await this._metadata.GetMetadataAsync(
+        // ---- 1. PackageMetadataResource でパッケージ一覧メタデータを取得 ----
+        // （PackageDetailsUrl・Authors・Description・ProjectUrl・LicenseUrl を得る）
+        var allMeta = await this._metadataResource.GetMetadataAsync(
                 id,
                 true,
                 false,
@@ -106,28 +99,54 @@ internal sealed class NuGetClient : IDisposable
                    ?? throw new InvalidOperationException(
                        $"Version '{version}' not found for package '{id}'.");
 
-        // ---- 2. .nuspec から copyright・ライセンス種別・リポジトリ URL を取得 ----
-        var nuspecInfo = await this.FetchNuspecInfoAsync(id, version, ct).ConfigureAwait(false);
-
-        // ---- 3. ライセンス式・URL の解決 ----
-        var licenseExpression = meta.LicenseMetadata?.License ?? string.Empty;
         var licenseUrl = meta.LicenseUrl?.ToString() ?? string.Empty;
 
+        // ---- 2. .nupkg をダウンロードして PackageArchiveReader で開く ----
+        // nuspec パース・LICENSE ファイル抽出を1回のダウンロードで完結させる
+        using var packageStream = new MemoryStream();
+        var downloaded = await this._findByIdResource.CopyNupkgToStreamAsync(
+                id,
+                nugetVersion,
+                packageStream,
+                this._cache,
+                NullLogger.Instance,
+                ct)
+            .ConfigureAwait(false);
+
+        if (!downloaded)
+        {
+            throw new InvalidOperationException(
+                $"Failed to download .nupkg for '{id}' {version}.");
+        }
+
+        packageStream.Position = 0;
+        using var reader = new PackageArchiveReader(packageStream);
+        var nuspec = reader.NuspecReader;
+
+        // ---- 3. NuspecReader で nuspec 情報を取得 ----
+        // ③ XLinq 手探りを NuspecReader の専用 API に置き換え
+        var copyright = nuspec.GetCopyright() ?? string.Empty;
+        var licenseMeta = nuspec.GetLicenseMetadata(); // type="file"|"expression" の情報
+        var repoMeta = nuspec.GetRepositoryMetadata(); // <repository url="...">
+        var repositoryUrl = !string.IsNullOrEmpty(repoMeta?.Url)
+            ? repoMeta.Url
+            : meta.ProjectUrl?.ToString() ?? string.Empty;
+
+        // ---- 4. ライセンス式の解決 ----
+        // LicenseMetadata は PackageMetadataResource の返値にも含まれているが、
+        // nuspec から直接取得することで type="file" / type="expression" の判別が確実になる
+        var licenseExpression = licenseMeta?.License ?? string.Empty;
+
+        // 旧来の licenseUrl のみ持つパッケージ向け: licenses.nuget.org URL から SPDX ID を抽出
         if (string.IsNullOrEmpty(licenseExpression) && !string.IsNullOrEmpty(licenseUrl))
         {
             licenseExpression = TryExtractSpdxFromUrl(licenseUrl);
         }
 
-        // リポジトリ URL: .nuspec の <repository url> 優先、なければ ProjectUrl で代替
-        var repositoryUrl = !string.IsNullOrEmpty(nuspecInfo.RepositoryUrl)
-            ? nuspecInfo.RepositoryUrl
-            : meta.ProjectUrl?.ToString() ?? string.Empty;
-
-        // ---- 4. ライセンス全文の取得 ----
+        // ---- 5. ライセンス全文の取得 ----
         var (licenseText, licenseSource) = await this.FetchLicenseTextAsync(
-                id,
-                version,
-                nuspecInfo,
+                reader,
+                licenseMeta,
                 licenseUrl,
                 ct)
             .ConfigureAwait(false);
@@ -138,12 +157,12 @@ internal sealed class NuGetClient : IDisposable
             Version = version,
             Authors = meta.Authors ?? string.Empty,
             Description = meta.Description ?? string.Empty,
-            PackageUrl = meta.PackageDetailsUrl.GetLeftPart(UriPartial.Path),
+            PackageUrl = meta.PackageDetailsUrl?.GetLeftPart(UriPartial.Path) ?? string.Empty,
             ProjectUrl = meta.ProjectUrl?.ToString() ?? string.Empty,
             RepositoryUrl = repositoryUrl,
             LicenseExpression = licenseExpression,
             LicenseUrl = licenseUrl,
-            Copyright = nuspecInfo.Copyright,
+            Copyright = copyright,
             LicenseText = licenseText,
             LicenseSource = licenseSource,
         };
@@ -155,30 +174,129 @@ internal sealed class NuGetClient : IDisposable
         this._http.Dispose();
     }
 
-    private static ZipArchiveEntry? FindEntry(ZipArchive zip, string path)
+    /// <summary>
+    /// PackageArchiveReader から LICENSE ファイルを読み取る。
+    /// ② 独自 ZipArchive 操作を PackageArchiveReader API に置き換え
+    ///
+    /// 探索順:
+    /// 1. nuspec の &lt;license type="file"&gt; で指定されたパス（優先）
+    /// 2. 既知パターン（LICENSE, LICENSE.txt, …）
+    /// </summary>
+    private static async Task<string?> TryReadLicenseFromNupkgAsync(
+        PackageArchiveReader reader,
+        LicenseMetadata? licenseMeta,
+        CancellationToken ct)
     {
-        var normalizedPath = path.Replace('\\', '/');
-        return zip.Entries.FirstOrDefault(e =>
-            string.Equals(
-                e.FullName.Replace('\\', '/'),
-                normalizedPath,
-                StringComparison.OrdinalIgnoreCase));
+        // 候補パスのリスト: nuspec 指定パスを先頭に、既知パターンを後続に並べる
+        IEnumerable<string> candidates = licenseMeta?.Type == LicenseType.File
+                                         && !string.IsNullOrEmpty(licenseMeta.License)
+            ? [NormalizeLicensePath(licenseMeta.License), .. _licenseFilePatterns,]
+            : _licenseFilePatterns;
+
+        foreach (var path in candidates)
+        {
+            try
+            {
+                // PackageArchiveReader.GetEntry() はパスが存在しない場合 null を返す
+                var entry = reader.GetEntry(path);
+                if (entry is null)
+                {
+                    continue;
+                }
+
+                await using var stream = await entry.OpenAsync(ct);
+                using var textReader = new StreamReader(stream, true);
+                return (await textReader.ReadToEndAsync(ct).ConfigureAwait(false)).TrimEnd();
+            }
+            catch
+            {
+                // エントリが見つからない・読み取り失敗は次のパターンへ
+            }
+        }
+
+        return null;
     }
 
-    private static async Task<string?> ReadEntryAsync(ZipArchiveEntry entry, CancellationToken ct)
+    /// <summary>
+    /// SPDX 式から SPDX ライセンス識別子の一覧を抽出する。
+    /// <see cref="NuGetLicenseExpression.Parse" /> で構文検証（無効な式は例外）を行い、
+    /// 検証済みの式文字列を再トークン化して識別子を収集する。
+    /// これにより SDK の内部サブクラス型（非公開 API）への依存を避けつつ、
+    /// 構文バリデーションの恩恵は確実に得られる。
+    /// 
+    /// WITH 演算子の exception 部分（例: Classpath-exception-2.0）は
+    /// SPDX ライセンス ID ではないため、SPDX テキスト取得対象から除外する。
+    /// </summary>
+    private static IReadOnlyList<string> CollectLicenseIdentifiers(string spdxExpression)
     {
+        string validatedExpression;
         try
         {
-            await using var stream = await entry.OpenAsync(ct);
-            using var reader = new StreamReader(stream, true);
-            return (await reader.ReadToEndAsync(ct).ConfigureAwait(false)).TrimEnd();
+            // Parse() で構文検証（無効な式は例外を投げる）
+            // ToString() は正規化された式文字列を返す
+            var parsed = NuGetLicenseExpression.Parse(spdxExpression);
+            validatedExpression = parsed.ToString() ?? spdxExpression;
         }
         catch
         {
-            return null;
+            // 非標準識別子等でパースに失敗した場合はそのままフォールバック
+            validatedExpression = spdxExpression;
         }
+
+        // トークン分割: 演算子キーワード・括弧を除いて識別子のみ収集
+        // WITH が含まれる式: "GPL-2.0-only WITH Classpath-exception-2.0"
+        // → "GPL-2.0-only" だけを license ID として扱い、exception 識別子は除外する
+        var tokens = validatedExpression
+            .Split([' ', '(', ')',], StringSplitOptions.RemoveEmptyEntries);
+
+        var ids = new List<string>();
+        var skipNext = false;
+        foreach (var token in tokens)
+        {
+            if (token is "OR" or "AND")
+            {
+                skipNext = false;
+                continue;
+            }
+
+            if (token is "WITH")
+            {
+                // WITH の直後のトークンは exception 識別子 → スキップ
+                skipNext = true;
+                continue;
+            }
+
+            if (skipNext)
+            {
+                skipNext = false;
+                continue;
+            }
+
+            if (!ids.Contains(token, StringComparer.Ordinal))
+            {
+                ids.Add(token);
+            }
+        }
+
+        return ids;
     }
 
+    // -------------------------------------------------------
+    // ユーティリティ
+    // -------------------------------------------------------
+
+    /// <summary>
+    /// nuspec の &lt;license type="file"&gt; に記述されたパスを
+    /// PackageArchiveReader.GetEntry() が受け付ける形式に正規化する。
+    /// （先頭のディレクトリ区切り文字・バックスラッシュを除去）
+    /// </summary>
+    private static string NormalizeLicensePath(string path) =>
+        path.TrimStart('/', '\\').Replace('\\', '/');
+
+    /// <summary>
+    /// licenses.nuget.org URL から SPDX ID を抽出する。
+    /// 例: https://licenses.nuget.org/MIT → "MIT"
+    /// </summary>
     private static string TryExtractSpdxFromUrl(string licenseUrl)
     {
         const string prefix = "https://licenses.nuget.org/";
@@ -190,104 +308,45 @@ internal sealed class NuGetClient : IDisposable
         return string.Empty;
     }
 
-    /// <summary>
-    /// .nuspec を取得して copyright・ライセンス情報・リポジトリ URL を返す。
-    /// &lt;license type="file"&gt;       → LicenseFile に .nupkg 内パス
-    /// &lt;license type="expression"&gt; → SpdxExpression に SPDX 式
-    /// &lt;repository url="..."&gt;      → RepositoryUrl に URL
-    /// </summary>
-    private async Task<NuspecInfo> FetchNuspecInfoAsync(string id, string version, CancellationToken ct)
-    {
-        var url = string.Format(
-            _nuspecUrlTemplate,
-            id.ToLowerInvariant(),
-            version.ToLowerInvariant());
-
-        try
-        {
-            var xml = await this._http.GetStringAsync(url, ct).ConfigureAwait(false);
-            var doc = XDocument.Parse(xml);
-
-            var copyright = doc.Descendants()
-                                .FirstOrDefault(e => e.Name.LocalName == "copyright")
-                                ?.Value.Trim()
-                            ?? string.Empty;
-
-            // <license type="file"|"expression">
-            var licenseEl = doc.Descendants()
-                .FirstOrDefault(e => e.Name.LocalName == "license");
-            var licenseType = licenseEl?.Attribute("type")?.Value;
-
-            string? licenseFile = null;
-            string? spdxExpression = null;
-
-            if (licenseType == "file")
-            {
-                licenseFile = licenseEl!.Value.Trim();
-            }
-            else if (licenseType == "expression")
-            {
-                spdxExpression = licenseEl!.Value.Trim();
-            }
-
-            // <repository url="https://github.com/..." type="git" branch="..." commit="...">
-            var repositoryUrl = doc.Descendants()
-                                    .FirstOrDefault(e => e.Name.LocalName == "repository")
-                                    ?.Attribute("url")?.Value.Trim()
-                                ?? string.Empty;
-
-            return new NuspecInfo(copyright, licenseFile, spdxExpression, repositoryUrl);
-        }
-        catch
-        {
-            return new NuspecInfo(string.Empty, null, null, string.Empty);
-        }
-    }
-
     // -------------------------------------------------------
     // ライセンス全文の取得
     // -------------------------------------------------------
 
     /// <summary>
     /// ライセンス全文と取得元種別を返す。取得できなければ (null, None)。
-    /// 
+    ///
     /// 優先順:
-    /// 1. type="file"       → .nupkg 内の指定ファイル  → NupkgFile
-    /// 2. type="file" 失敗  → .nupkg 内を既知パターンで探索 → NupkgFile
-    /// 3. type="expression" → SPDX リストから標準全文  → SpdxExpression
-    /// 4. 外部 licenseUrl   → URL を直接フェッチ        → ExternalUrl
+    /// 1. type="file"       → .nupkg 内の指定ファイル            → NupkgFile
+    /// 2. type="file" 失敗  → .nupkg 内を既知パターンで探索       → NupkgFile
+    /// 3. type="expression" → SPDX リストから全 ID の全文を結合   → SpdxExpression
+    /// 4. 外部 licenseUrl   → URL を直接フェッチ                  → ExternalUrl
     /// </summary>
     private async Task<(string? Text, LicenseSource Source)> FetchLicenseTextAsync(
-        string id,
-        string version,
-        NuspecInfo nuspecInfo,
+        PackageArchiveReader reader,
+        LicenseMetadata? licenseMeta,
         string licenseUrl,
         CancellationToken ct)
     {
         // 戦略1 & 2: .nupkg から LICENSE ファイルを取得
         // type="expression" でもファイルが同封されているケースがあるため常に試みる
-        var fromNupkg = await this.TryFetchFromNupkgAsync(id, version, nuspecInfo.LicenseFile, ct)
+        var fromNupkg = await TryReadLicenseFromNupkgAsync(reader, licenseMeta, ct)
             .ConfigureAwait(false);
         if (fromNupkg is not null)
         {
             return (fromNupkg, LicenseSource.NupkgFile);
         }
 
-        // 戦略3: type="expression" → SPDX 標準テキストを取得
-        // 複合式（"Apache-2.0 OR MIT" 等）は先頭の主要 SPDX ID を使用
-        if (!string.IsNullOrEmpty(nuspecInfo.SpdxExpression))
+        // 戦略3: type="expression" → 全 SPDX ID のテキストを取得
+        // ③ 独自スプリットを NuGetLicenseExpression.Parse() に置き換え
+        // 複合式（"Apache-2.0 OR MIT" 等）も全 ID 分取得して結合する
+        if (licenseMeta?.Type == LicenseType.Expression
+            && !string.IsNullOrEmpty(licenseMeta.License))
         {
-            var primaryId = nuspecInfo.SpdxExpression
-                .Split([' ', '(', ')',], StringSplitOptions.RemoveEmptyEntries)
-                .FirstOrDefault(t => t is not ("OR" or "AND" or "WITH"));
-
-            if (primaryId is not null)
+            var fromSpdx = await this.TryFetchAllSpdxTextsAsync(licenseMeta.License, ct)
+                .ConfigureAwait(false);
+            if (fromSpdx is not null)
             {
-                var fromSpdx = await this.TryFetchSpdxTextAsync(primaryId, ct).ConfigureAwait(false);
-                if (fromSpdx is not null)
-                {
-                    return (fromSpdx, LicenseSource.SpdxExpression);
-                }
+                return (fromSpdx, LicenseSource.SpdxExpression);
             }
         }
 
@@ -308,50 +367,33 @@ internal sealed class NuGetClient : IDisposable
     }
 
     /// <summary>
-    /// .nupkg をダウンロードして ZIP 展開し、LICENSE ファイルのテキストを返す。
+    /// SPDX 式を <see cref="NuGetLicenseExpression.Parse" /> で構文検証したうえで、
+    /// ③ 含まれる全 SPDX ライセンス ID を抽出してテキストを取得・結合して返す。
+    /// 複合式（Apache-2.0 OR MIT 等）では各 ID のテキストを "---" で区切って結合する。
+    /// いずれか1つでも取得できなければ null を返す。
     /// </summary>
-    private async Task<string?> TryFetchFromNupkgAsync(
-        string id,
-        string version,
-        string? preferredPath,
-        CancellationToken ct)
+    private async Task<string?> TryFetchAllSpdxTextsAsync(string spdxExpression, CancellationToken ct)
     {
-        var url = string.Format(
-            _nupkgUrlTemplate,
-            id.ToLowerInvariant(),
-            version.ToLowerInvariant());
+        var ids = CollectLicenseIdentifiers(spdxExpression);
 
-        try
-        {
-            var bytes = await this._http.GetByteArrayAsync(url, ct).ConfigureAwait(false);
-            await using var zip = new ZipArchive(new MemoryStream(bytes), ZipArchiveMode.Read);
-
-            // nuspec で <license type="file"> が指定されていればそのパスを優先
-            if (preferredPath is not null)
-            {
-                var entry = FindEntry(zip, preferredPath);
-                if (entry is not null)
-                {
-                    return await ReadEntryAsync(entry, ct).ConfigureAwait(false);
-                }
-            }
-
-            // 既知パターンで探索
-            foreach (var pattern in _licenseFilePatterns)
-            {
-                var entry = FindEntry(zip, pattern);
-                if (entry is not null)
-                {
-                    return await ReadEntryAsync(entry, ct).ConfigureAwait(false);
-                }
-            }
-
-            return null;
-        }
-        catch
+        if (ids.Count == 0)
         {
             return null;
         }
+
+        var texts = new List<string>(ids.Count);
+        foreach (var id in ids)
+        {
+            var text = await this.TryFetchSpdxTextAsync(id, ct).ConfigureAwait(false);
+            if (text is null)
+            {
+                return null; // 1つでも欠けたら全体を null に
+            }
+
+            texts.Add(ids.Count == 1 ? text : $"--- {id} ---\n\n{text}");
+        }
+
+        return string.Join("\n\n", texts);
     }
 
     /// <summary>
@@ -382,15 +424,4 @@ internal sealed class NuGetClient : IDisposable
             return null;
         }
     }
-
-    // -------------------------------------------------------
-    // .nuspec の取得
-    // -------------------------------------------------------
-
-    private record NuspecInfo(
-        string Copyright,
-        string? LicenseFile, // type="file"  のファイルパス
-        string? SpdxExpression, // type="expression" の SPDX 式
-        string RepositoryUrl // <repository url="..."> 属性
-    );
 }

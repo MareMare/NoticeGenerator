@@ -30,6 +30,23 @@ cd NoticeGenerator
 dotnet build -c Release
 ```
 
+### スタンドアロン実行ファイルの発行
+
+Windows x64向けの自己完結型単一ファイル実行ファイルを作成するには：
+
+```bash
+dotnet publish .\src\NoticeGenerator -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -p:PublishReadyToRun=false -o artifacts
+```
+
+このコマンドは以下を実行します：
+- Releaseコンフィギュレーションでプロジェクトをビルド
+- Windows x64ランタイム（`win-x64`）をターゲット
+- 単一の実行ファイルを作成（`PublishSingleFile=true`）
+- すべての依存関係を含める（`SelfContained=true`）
+- `artifacts`ディレクトリに実行ファイルを出力
+
+生成された実行ファイルは、.NETがインストールされていないWindows x64システムでも配布・実行できます。
+
 ## 使用方法
 
 ### 基本的な使用方法
@@ -113,10 +130,3 @@ dotnet run --project src/NoticeGenerator -- --project ./src --concurrency 8
 
 このプロジェクトはMITライセンスの下でライセンスされています - 詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
-## 貢献
-
-貢献を歓迎します！プルリクエストをお気軽に提出してください。
-
-## サポート
-
-問題が発生した場合や質問がある場合は、GitHubで[issueを開いて](https://github.com/MareMare/NoticeGenerator/issues)ください。

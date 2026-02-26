@@ -30,6 +30,23 @@ cd NoticeGenerator
 dotnet build -c Release
 ```
 
+### Publishing Standalone Executable
+
+To create a self-contained, single-file executable for Windows x64:
+
+```bash
+dotnet publish .\src\NoticeGenerator -c Release -r win-x64 -p:PublishSingleFile=true -p:SelfContained=true -p:PublishReadyToRun=false -o artifacts
+```
+
+This command will:
+- Build the project in Release configuration
+- Target Windows x64 runtime (`win-x64`)
+- Create a single executable file (`PublishSingleFile=true`)
+- Include all dependencies (`SelfContained=true`)
+- Output the executable to the `artifacts` directory
+
+The resulting executable can be distributed and run on Windows x64 systems without requiring .NET to be installed.
+
 ## Usage
 
 ### Basic Usage
@@ -112,11 +129,3 @@ The generated NOTICE.md file includes:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## Support
-
-If you encounter any issues or have questions, please [open an issue](https://github.com/MareMare/NoticeGenerator/issues) on GitHub.
