@@ -8,7 +8,7 @@
   <PropertyGroup Label="Package">
     <PackageId>MareMare.NoticeGenerator</PackageId>
     <Title>NoticeGenerator</Title>
-    <Version>2026.2.28.1401</Version>
+    <Version>2026.2.28.1406</Version>
     <Authors>MareMare</Authors>
     <Company>MareMare</Company>
     <Description>.NETプロジェクトのNuGetパッケージ依存関係のライセンス情報を含むNOTICE.mdファイルを生成するツールです。</Description>
