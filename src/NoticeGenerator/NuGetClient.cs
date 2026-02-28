@@ -68,7 +68,7 @@ internal sealed class NuGetClient : IDisposable
                                      | DecompressionMethods.Deflate
                                      | DecompressionMethods.Brotli,
         });
-        this._http.DefaultRequestHeaders.UserAgent.ParseAdd("NoticeGenerator/1.0");
+        this._http.DefaultRequestHeaders.UserAgent.ParseAdd($"{AppInfo.ApplicationName}/{AppInfo.Version}");
         this._http.Timeout = TimeSpan.FromSeconds(60);
     }
 
