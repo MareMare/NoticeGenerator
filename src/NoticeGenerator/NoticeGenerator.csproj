@@ -1,16 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
-
   <PropertyGroup Label="Package">
     <PackageId>MareMare.NoticeGenerator</PackageId>
     <Title>NoticeGenerator</Title>
-    <Version>2026.2.25.0649</Version>
+    <Version>2026.2.28.1401</Version>
     <Authors>MareMare</Authors>
     <Company>MareMare</Company>
     <Description>.NETプロジェクトのNuGetパッケージ依存関係のライセンス情報を含むNOTICE.mdファイルを生成するツールです。</Description>
@@ -38,24 +36,19 @@
     <None Include="$(MSBuildThisFileDirectory)../../logo.png" Pack="true" PackagePath="" />
     <None Include="$(MSBuildThisFileDirectory)../../README.md" Pack="true" PackagePath="" />
   </ItemGroup>
-
   <ItemGroup>
     <None Remove="get-packages.ps1" />
   </ItemGroup>
-
   <ItemGroup>
     <Content Include="logo.ico" />
   </ItemGroup>
-
   <ItemGroup>
     <EmbeddedResource Include="get-packages.ps1" />
   </ItemGroup>
-
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.3" />
     <PackageReference Include="NuGet.Packaging" Version="7.3.0" />
     <PackageReference Include="NuGet.Protocol" Version="7.3.0" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.53.1" />
   </ItemGroup>
-
 </Project>
