@@ -64,7 +64,7 @@ jobs:
           $zipName = "${{ env.TARGET_PROJECT_NAME }}-win-x64.zip"
           Compress-Archive -Path "./artifacts/${{ env.TARGET_PROJECT_NAME }}/*" -DestinationPath "./artifacts/$zipName"
       - name: 🎨 Upload artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.TARGET_PROJECT_NAME }}-win-x64
           path: ./artifacts/${{ env.TARGET_PROJECT_NAME }}-win-x64.zip
