@@ -1,4 +1,4 @@
-# NoticeGenerator
+﻿# NoticeGenerator
 
 A command-line tool that generates NOTICE.md files containing license information for NuGet package dependencies in .NET projects.
 
@@ -21,6 +21,37 @@ NoticeGenerator automatically scans your .NET project or solution, retrieves lic
 ### Prerequisites
 
 - .NET 10.0 or later
+
+### Install as .NET Tool
+
+#### From GitHub Packages
+
+```bash
+# Add GitHub Packages source (one-time setup)
+dotnet nuget add source "https://nuget.pkg.github.com/MareMare/index.json" \
+  --name "MareMare GitHub Packages" \
+  --username "token" \
+  --password "YOUR_GITHUB_TOKEN" \
+  --store-password-in-clear-text
+
+# Install the tool
+dotnet tool install MareMare.NoticeGenerator --local --prerelease
+```
+
+#### Using PowerShell Script (Recommended for Development)
+
+The `sandbox/run-tools.ps1` script provides an automated way to install and run the tool:
+
+```powershell
+# Navigate to the sandbox directory
+cd sandbox
+
+# Run with default settings
+.\run-tools.ps1
+
+# Run with custom arguments
+.\run-tools.ps1 -- --project ../src --scope top --output THIRD_PARTY_NOTICES.md
+```
 
 ### Build from Source
 
@@ -51,16 +82,35 @@ The resulting executable can be distributed and run on Windows x64 systems witho
 
 ### Basic Usage
 
-Generate a NOTICE.md file for the current directory:
+#### Using the standalone executable
+
+```powershell
+.\NoticeGenerator.exe --help
+```
+
+#### Using as Installed .NET Tool
 
 ```bash
-dotnet run --project src/NoticeGenerator
+dotnet tool run NoticeGenerator -- --help
+```
+
+#### Using from Source
+
+```bash
+dotnet run --project src/NoticeGenerator -- --help
+```
+
+#### Using PowerShell Script
+
+```powershell
+cd sandbox
+.\run-tools.ps1 -- --help
 ```
 
 ### Command Line Options
 
-```bash
-notice-generator [OPTIONS]
+```powershell
+.\NoticeGenerator.exe [OPTIONS]
 ```
 
 #### Options
@@ -75,29 +125,46 @@ notice-generator [OPTIONS]
 
 ### Examples
 
-#### Analyze a specific project directory
+#### Using the standalone executable
+
+```powershell
+# Analyze a specific project directory
+.\NoticeGenerator.exe --project ./src
+
+# Generate NOTICE for top-level packages only
+.\NoticeGenerator.exe --project ./src --scope top
+
+# Omit version information from package names
+.\NoticeGenerator.exe --project ./src --no-version
+
+# Custom output file and scope
+.\NoticeGenerator.exe --project ./src --scope top --output THIRD_PARTY_NOTICES.md
+
+# High concurrency for faster processing
+.\NoticeGenerator.exe --project ./src --concurrency 8
+```
+
+#### Using PowerShell Script
+
+```powershell
+# Basic usage
+.\run-tools.ps1
+
+# With custom arguments
+.\run-tools.ps1 -- --project ../src --scope top --output THIRD_PARTY_NOTICES.md
+```
+
+#### Using from Source
+
 ```bash
+# Analyze a specific project directory
 dotnet run --project src/NoticeGenerator -- --project ./src
-```
 
-#### Generate NOTICE for top-level packages only
-```bash
+# Generate NOTICE for top-level packages only
 dotnet run --project src/NoticeGenerator -- --project ./src --scope top
-```
 
-#### Omit version information from package names
-```bash
-dotnet run --project src/NoticeGenerator -- --project ./src --no-version
-```
-
-#### Custom output file and scope
-```bash
+# Custom output file and scope
 dotnet run --project src/NoticeGenerator -- --project ./src --scope top --output THIRD_PARTY_NOTICES.md
-```
-
-#### High concurrency for faster processing
-```bash
-dotnet run --project src/NoticeGenerator -- --project ./src --concurrency 8
 ```
 
 ## Output Format
