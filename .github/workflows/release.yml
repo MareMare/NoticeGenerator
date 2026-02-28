@@ -81,6 +81,7 @@ jobs:
       - name: 🎉 Publish Latest Release
         env:
           TAG_NAME: "v${{ steps.versioning.outputs.version }}"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
             gh release create ${{ env.TAG_NAME }} --title "Release ${{ env.TAG_NAME }}" --generate-notes --draft --prerelease
             gh release upload ${{ env.TAG_NAME }} $(ls "./artifacts/${{ env.TARGET_PROJECT_NAME }}/*")
