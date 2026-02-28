@@ -8,7 +8,7 @@
   </PropertyGroup>
 
   <PropertyGroup Label="Package">
-    <PackageId>NoticeGenerator</PackageId>
+    <PackageId>MareMare.NoticeGenerator</PackageId>
     <Title>NoticeGenerator</Title>
     <Version>2026.2.25.0649</Version>
     <Authors>MareMare</Authors>
