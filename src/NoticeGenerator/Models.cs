@@ -19,6 +19,9 @@ internal enum LicenseSource
     /// <summary>.nupkg 内の LICENSE ファイル（パッケージ固有・URL なし）。</summary>
     NupkgFile,
 
+    /// <summary>GitHub リポジトリの LICENSE ファイル（実際の著作権表示を含む）。</summary>
+    GitHubRepository,
+
     /// <summary>SPDX 標準テキスト（type="expression" のフォールバック）。</summary>
     SpdxExpression,
 
