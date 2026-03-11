@@ -9,7 +9,7 @@ NoticeGenerator automatically scans your .NET project or solution, retrieves lic
 ## Features
 
 - 🔍 **Automatic Package Discovery**: Uses `dotnet list package` to find all NuGet dependencies
-- 📄 **License Text Retrieval**: Fetches full license texts from NuGet packages and external sources
+- 📄 **License Text Retrieval**: Fetches full license texts from NuGet packages, GitHub repositories, and external sources
 - ⚡ **Parallel Processing**: Concurrent NuGet API requests for faster execution
 - 🎯 **Flexible Scope**: Support for both top-level and transitive dependencies
 - 📊 **Progress Tracking**: Real-time progress display with detailed status information
@@ -183,8 +183,9 @@ The generated NOTICE.md file includes:
 2. **Metadata Retrieval**: Queries the NuGet API in parallel to fetch package metadata
 3. **License Text Extraction**: Downloads license files from:
    - Package contents (.nupkg files)
-   - External URLs specified in package metadata
+   - GitHub repository LICENSE files (provides actual copyright notices)
    - SPDX standard license texts for common licenses
+   - External URLs specified in package metadata
 4. **Report Generation**: Compiles all information into a structured NOTICE.md file
 
 ## Dependencies

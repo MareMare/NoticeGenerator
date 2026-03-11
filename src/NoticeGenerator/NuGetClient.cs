@@ -23,7 +23,7 @@ namespace NoticeGenerator;
 /// ライセンス全文の取得戦略（優先順）:
 /// 1. nuspec の &lt;license type="file"&gt; で指定されたファイルを .nupkg から取得
 /// 2. &lt;license type="file"&gt; がなければ既知パターンで .nupkg を探索
-/// 3. &lt;license type="expression"&gt; → SPDX リストから全文取得（複合式は全 ID 分）
+/// 3. GitHub リポジトリから既知パターンで探索
 /// 4. licenseUrl が外部 URL（licenses.nuget.org 以外）→ URL を直接フェッチ
 /// 5. 取得できなければ null
 /// </summary>
@@ -33,19 +33,33 @@ internal sealed class NuGetClient : IDisposable
     private const string _spdxRawUrlTemplate =
         "https://raw.githubusercontent.com/spdx/license-list-data/main/text/{0}.txt";
 
+    // GitHub リポジトリから LICENSE ファイルを取得する raw URL テンプレート
+    // {0}: owner, {1}: repo, {2}: ファイル名
+    private const string _githubRawUrlTemplate =
+        "https://raw.githubusercontent.com/{0}/{1}/HEAD/{2}";
+
     // .nupkg 内で LICENSE ファイルとして認識する名前パターン（優先順）
+    // GitHub raw は大文字小文字を区別するため、実績のある表記を網羅する
+    // LICENSE.TXT : dotnet/runtime など Microsoft 系リポジトリで使用される
+    // License.txt : xunit/visualstudio.xunit など Title case で使用される
     private static readonly string[] _licenseFilePatterns =
     [
         "LICENSE",
         "LICENSE.txt",
+        "LICENSE.TXT",
         "LICENSE.md",
         "LICENSE.rst",
+        "License",
+        "License.txt",
         "license",
         "license.txt",
         "license.md",
         "LICENCE",
         "LICENCE.txt",
+        "LICENCE.TXT",
         "LICENCE.md",
+        "Licence",
+        "Licence.txt",
     ];
 
     private readonly SourceCacheContext _cache;
@@ -148,6 +162,7 @@ internal sealed class NuGetClient : IDisposable
                 reader,
                 licenseMeta,
                 licenseUrl,
+                repositoryUrl,
                 ct)
             .ConfigureAwait(false);
 
@@ -318,13 +333,15 @@ internal sealed class NuGetClient : IDisposable
     /// 優先順:
     /// 1. type="file"       → .nupkg 内の指定ファイル            → NupkgFile
     /// 2. type="file" 失敗  → .nupkg 内を既知パターンで探索       → NupkgFile
-    /// 3. type="expression" → SPDX リストから全 ID の全文を結合   → SpdxExpression
-    /// 4. 外部 licenseUrl   → URL を直接フェッチ                  → ExternalUrl
+    /// 3. GitHub リポジトリから既知パターンで探索                  → NupkgFile
+    /// 4. type="expression" → SPDX リストから全 ID の全文を結合   → SpdxExpression
+    /// 5. 外部 licenseUrl   → URL を直接フェッチ                  → ExternalUrl
     /// </summary>
     private async Task<(string? Text, LicenseSource Source)> FetchLicenseTextAsync(
         PackageArchiveReader reader,
         LicenseMetadata? licenseMeta,
         string licenseUrl,
+        string repositoryUrl,
         CancellationToken ct)
     {
         // 戦略1 & 2: .nupkg から LICENSE ファイルを取得
@@ -336,7 +353,19 @@ internal sealed class NuGetClient : IDisposable
             return (fromNupkg, LicenseSource.NupkgFile);
         }
 
-        // 戦略3: type="expression" → 全 SPDX ID のテキストを取得
+        // 戦略3: GitHub リポジトリから既知パターンで LICENSE ファイルを探索
+        // SPDX テンプレートより実際の著作権表示を含む可能性が高いため先に試みる
+        if (!string.IsNullOrEmpty(repositoryUrl))
+        {
+            var fromGitHub = await this.TryReadLicenseFromGitHubAsync(repositoryUrl, ct)
+                .ConfigureAwait(false);
+            if (fromGitHub is not null)
+            {
+                return (fromGitHub, LicenseSource.GitHubRepository);
+            }
+        }
+
+        // 戦略4: type="expression" → 全 SPDX ID のテキストを取得
         // ③ 独自スプリットを NuGetLicenseExpression.Parse() に置き換え
         // 複合式（"Apache-2.0 OR MIT" 等）も全 ID 分取得して結合する
         if (licenseMeta?.Type == LicenseType.Expression
@@ -350,7 +379,7 @@ internal sealed class NuGetClient : IDisposable
             }
         }
 
-        // 戦略4: 外部 licenseUrl の場合はフェッチ
+        // 戦略5: 外部 licenseUrl の場合はフェッチ
         // （licenses.nuget.org・www.nuget.org は HTML ページなのでスキップ）
         if (!string.IsNullOrEmpty(licenseUrl)
             && !licenseUrl.StartsWith("https://licenses.nuget.org/", StringComparison.OrdinalIgnoreCase)
@@ -394,6 +423,81 @@ internal sealed class NuGetClient : IDisposable
         }
 
         return string.Join("\n\n", texts);
+    }
+
+    /// <summary>
+    /// GitHub リポジトリ URL から LICENSE ファイルを既知パターンで探索して取得する。
+    /// 対象は GitHub ホスト（github.com）のみ。
+    /// リポジトリ URL 例: https://github.com/owner/repo.git
+    ///                    https://github.com/owner/repo
+    /// </summary>
+    private async Task<string?> TryReadLicenseFromGitHubAsync(
+        string repositoryUrl,
+        CancellationToken ct)
+    {
+        // GitHub ホスト以外はスキップ
+        if (!repositoryUrl.Contains("github.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // URL から owner/repo を抽出する
+        // 例: https://github.com/owner/repo.git → owner, repo
+        if (!TryParseGitHubOwnerRepo(repositoryUrl, out var owner, out var repo))
+        {
+            return null;
+        }
+
+        foreach (var fileName in _licenseFilePatterns)
+        {
+            var url = string.Format(_githubRawUrlTemplate, owner, repo, fileName);
+            var text = await this.TryFetchUrlAsync(url, ct).ConfigureAwait(false);
+            if (text is not null)
+            {
+                return text;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// GitHub リポジトリ URL から owner と repo 名を抽出する。
+    /// 例: https://github.com/coverlet-coverage/coverlet.git → ("coverlet-coverage", "coverlet")
+    /// </summary>
+    private static bool TryParseGitHubOwnerRepo(
+        string repositoryUrl,
+        out string owner,
+        out string repo)
+    {
+        owner = string.Empty;
+        repo = string.Empty;
+
+        try
+        {
+            var uri = new Uri(repositoryUrl.Trim());
+
+            // パス部分: /owner/repo または /owner/repo.git
+            var segments = uri.AbsolutePath
+                .Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+            if (segments.Length < 2)
+            {
+                return false;
+            }
+
+            owner = segments[0];
+            // .git サフィックスを除去
+            repo = segments[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase)
+                ? segments[1][..^4]
+                : segments[1];
+
+            return !string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repo);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>

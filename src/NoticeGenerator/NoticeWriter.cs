@@ -138,21 +138,27 @@ internal sealed class NoticeWriter
     /// <summary>
     /// LicenseSource に応じてライセンス表記文字列を生成する。
     /// 
-    /// NupkgFile      → プレーンテキスト（.nupkg 由来でURL根拠なし）
+    /// NupkgFile         → プレーンテキスト（.nupkg 由来でURL根拠なし）
     /// 例: MIT
-    /// SpdxExpression → SPDX ページへの Markdown リンク
+    /// GitHubRepository  → プレーンテキスト（GitHub 由来でURL根拠なし）
+    /// 例: MIT
+    /// SpdxExpression    → SPDX ページへの Markdown リンク
     /// 例: [MIT](https://spdx.org/licenses/MIT.html)
     /// 複合式は各 ID を個別リンクに変換
     /// 例: [Apache-2.0](https://...) OR [MIT](https://...)
-    /// ExternalUrl    → licenseUrl への Markdown リンク
+    /// ExternalUrl       → licenseUrl への Markdown リンク
     /// 例: [Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0)
-    /// None           → プレーンテキスト
+    /// None              → プレーンテキスト
     /// </summary>
     private static string BuildLicenseDisplay(NoticeEntry e) =>
         e.LicenseSource switch
         {
             LicenseSource.NupkgFile =>
                 // .nupkg のファイルから取得 → URL 根拠がないのでプレーンテキスト
+                e.LicenseExpression,
+
+            LicenseSource.GitHubRepository =>
+                // GitHub リポジトリから取得 → URL 根拠がないのでプレーンテキスト
                 e.LicenseExpression,
 
             LicenseSource.SpdxExpression =>
