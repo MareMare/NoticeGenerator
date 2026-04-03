@@ -59,7 +59,7 @@ internal sealed class GenerateCommand(
     NuGetClient nugetClient,
     NoticeWriter noticeWriter) : AsyncCommand<GenerateSettings>
 {
-    public override async Task<int> ExecuteAsync(CommandContext context, GenerateSettings settings,
+    protected override async Task<int> ExecuteAsync(CommandContext context, GenerateSettings settings,
         CancellationToken cancellationToken)
     {
         //AnsiConsole.Write(new FigletText("Notice Generator").Color(Color.SteelBlue1));
