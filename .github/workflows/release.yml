@@ -26,43 +26,29 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-      - name: 📝 Update Version
+      - name: 🕔 Generate JST version
         id: versioning
         run: |
-          # タイムゾーン設定 (Linux 環境向けに Asia/Tokyo を使用)
           $JstTimeZone = [TimeZoneInfo]::FindSystemTimeZoneById("Asia/Tokyo")
           $UtcDate = (Get-Date).ToUniversalTime()
           $JstDate = [TimeZoneInfo]::ConvertTimeFromUtc($UtcDate, $JstTimeZone)
-          
-          # バージョン生成
           $VERSION = $JstDate.ToString("yyyy.M.d.HHmm")
-          "version=$VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "VERSION_OVERRIDE=$VERSION" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "version=$VERSION"          | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-          # csproj 更新
-          $csprojPath = "${{ env.TARGET_PROJECT_PATH }}"
-          [xml]$xml = Get-Content $csprojPath
-          $xml.Project.PropertyGroup | ? Version | % { $_.Version = $VERSION }
-          $xml.Save($csprojPath)
-          
-          # Git コミット & プッシュ
-          git config user.name 'MareMare (via GitHub Actions)'
-          git config user.email 'MareMare@users.noreply.github.com'
-          git add $csprojPath
-          if (-not (git diff --staged --quiet)) {
-              git commit -m "Bump version to $VERSION [skip ci]"
-              git push
-          }
-      - name: 🚚 Restore
-        run: dotnet restore "${{ env.TARGET_PROJECT_PATH }}"
-      - name: 🛠️ Build
-        run: dotnet build "${{ env.TARGET_PROJECT_PATH }}" --configuration Release --no-restore
       - name: 🚀 Publish ${{ env.TARGET_PROJECT_NAME }}
-        run: dotnet publish "${{ env.TARGET_PROJECT_PATH }}" --configuration Release -p:PublishProfile=FolderProfile --output "./artifacts/${{ env.TARGET_PROJECT_NAME }}"
+        run: |
+          dotnet publish "${{ env.TARGET_PROJECT_PATH }}" `
+            --configuration Release `
+            -p:PublishProfile=FolderProfile `
+            --output "./artifacts/${{ env.TARGET_PROJECT_NAME }}"
 
       - name: 🗜️ Zip artifacts
         run: |
           $zipName = "${{ env.TARGET_PROJECT_NAME }}-win-x64.zip"
-          Compress-Archive -Path "./artifacts/${{ env.TARGET_PROJECT_NAME }}/*" -DestinationPath "./artifacts/$zipName"
+          Compress-Archive `
+            -Path "./artifacts/${{ env.TARGET_PROJECT_NAME }}/*" `
+            -DestinationPath "./artifacts/$zipName"
       - name: 🎨 Upload artifacts
         uses: actions/upload-artifact@v7
         with:
@@ -89,21 +75,27 @@ jobs:
           TAG_NAME: "v${{ steps.versioning.outputs.version }}"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-            gh release create ${{ env.TAG_NAME }} --title "Release ${{ env.TAG_NAME }}" --generate-notes --draft --prerelease
+          gh release create ${{ env.TAG_NAME }} `
+            --title "Release ${{ env.TAG_NAME }}" `
+            --generate-notes `
+            --draft `
+            --prerelease
 
-            gh release upload ${{ env.TAG_NAME }} "./artifacts/${{ env.TARGET_PROJECT_NAME }}-win-x64.zip"
+          gh release upload ${{ env.TAG_NAME }} `
+            "./artifacts/${{ env.TARGET_PROJECT_NAME }}-win-x64.zip"
 
-            Get-ChildItem "./nupkg" -File | ForEach-Object {
-              gh release upload ${{ env.TAG_NAME }} $_.FullName
-            }
+          Get-ChildItem "./nupkg" -File | ForEach-Object {
+            gh release upload ${{ env.TAG_NAME }} $_.FullName
+          }
 
-            gh release edit ${{ env.TAG_NAME }} --draft=false --prerelease=false --latest
+          gh release edit ${{ env.TAG_NAME }} --draft=false --prerelease=false --latest
+
       - name: 📣 Release summary
         run: |
-          $VERSION = "${{ steps.versioning.outputs.version }}"
-          $ARTIFACT_NAME = "${{ env.TARGET_PROJECT_NAME }}-win-x64"
-          $PACKAGE_ID = "${{ env.NUGET_PACKAGE_ID }}"
-          $RUN_URL = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $VERSION     = "${{ steps.versioning.outputs.version }}"
+          $ARTIFACT    = "${{ env.TARGET_PROJECT_NAME }}-win-x64"
+          $PACKAGE_ID  = "${{ env.NUGET_PACKAGE_ID }}"
+          $RUN_URL     = "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
           @"
           ### ✅ Succeeded! 🌟
@@ -112,7 +104,7 @@ jobs:
           | --- | --- |
           | 📦 Package | ``${PACKAGE_ID}`` |
           | 🏷️ Version | ``${VERSION}`` |
-          | 🗂️ Artifact | [``${ARTIFACT_NAME}``](${RUN_URL}) |
+          | 🗂️ Artifact | [``${ARTIFACT}``](${RUN_URL}) |
 
           #### dotnet tool install
           ``````ps1

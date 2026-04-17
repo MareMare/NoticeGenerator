@@ -5,10 +5,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+  <PropertyGroup Label="Versioning">
+    <!-- CI からは VERSION_OVERRIDE 環境変数で JST バージョンを受け取る -->
+    <!-- ローカルビルドはフォールバックとして Now (ローカル時刻) を使用 -->
+    <Version Condition="'$(VERSION_OVERRIDE)' != ''">$(VERSION_OVERRIDE)</Version>
+    <Version Condition="'$(VERSION_OVERRIDE)' == ''">$([System.DateTime]::Now.ToString("yyyy.M.d.HHmm"))</Version>
+  </PropertyGroup>
   <PropertyGroup Label="Package">
     <PackageId>MareMare.NoticeGenerator</PackageId>
     <Title>NoticeGenerator</Title>
-    <Version>2026.3.15.0529</Version>
     <Authors>MareMare</Authors>
     <Company>MareMare</Company>
     <Description>.NETプロジェクトのNuGetパッケージ依存関係のライセンス情報を含むNOTICE.mdファイルを生成するツールです。</Description>
