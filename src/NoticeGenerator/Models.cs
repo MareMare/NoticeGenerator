@@ -8,7 +8,7 @@
 namespace NoticeGenerator;
 
 /// <summary>dotnet list package から取得したパッケージ参照。</summary>
-internal sealed record PackageRef(string Id, string? Version);
+internal sealed record PackageRef(string Id, string Version);
 
 /// <summary>ライセンス全文の取得元種別。NoticeWriter でのリンク生成判断に使用。</summary>
 internal enum LicenseSource
@@ -33,7 +33,7 @@ internal enum LicenseSource
 internal sealed class NoticeEntry
 {
     public string Id { get; init; } = string.Empty;
-    public string? Version { get; init; }
+    public string Version { get; init; } = string.Empty;
     public string Authors { get; init; } = string.Empty;
     public string Description { get; init; } = string.Empty;
     public string PackageUrl { get; init; } = string.Empty;

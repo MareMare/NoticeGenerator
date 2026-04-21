@@ -21,6 +21,7 @@ internal sealed class NoticeWriter
     public async Task WriteAsync(
         string outputPath,
         IEnumerable<NoticeEntry> entries,
+        bool noVersion,
         CancellationToken ct = default)
     {
         var entryList = entries
@@ -32,7 +33,7 @@ internal sealed class NoticeWriter
 
         foreach (var entry in entryList)
         {
-            NoticeWriter.WritePackageEntry(sb, entry);
+            WritePackageEntry(sb, entry, noVersion);
         }
 
         var dir = Path.GetDirectoryName(Path.GetFullPath(outputPath));
@@ -61,11 +62,22 @@ internal sealed class NoticeWriter
         sb.AppendLine();
     }
 
-    private static void WritePackageEntry(StringBuilder sb, NoticeEntry e)
+    private static void WritePackageEntry(StringBuilder sb, NoticeEntry e, bool noVersion)
     {
-        var header = string.IsNullOrEmpty(e.Version)
-            ? $"## [{e.Id}]({e.PackageUrl})"
-            : $"## [{e.Id} {e.Version}]({e.PackageUrl})";
+        var (title, packageUrl) = noVersion
+            ? (
+                e.Id,
+                // PackageUrl の末尾から Version を削除
+                e.PackageUrl.EndsWith(e.Version, StringComparison.OrdinalIgnoreCase)
+                    ? e.PackageUrl[..^e.Version.Length].TrimEnd('/')
+                    : e.PackageUrl
+            )
+            : (
+                $"{e.Id} {e.Version}",
+                e.PackageUrl
+            );
+
+        var header = $"## [{title}]({packageUrl})";
         sb.AppendLine(header);
         sb.AppendLine();
 

@@ -119,7 +119,7 @@ cd sandbox
 |-----------|------|-----------|
 | `-p, --project <PATH>` | 分析するプロジェクトまたはソリューションのパス | `.`（現在のディレクトリ） |
 | `-s, --scope <SCOPE>` | パッケージスコープ：`all`（推移的含む）または`top`（トップレベルのみ） | `all` |
-| `--no-version` | パッケージ識別子からバージョンを省略（グループ化に有用） | `false` |
+| `--no-version` | 生成されるNOTICE.mdからバージョン表記を削除します | `false` |
 | `-o, --output <FILE>` | 生成されるNOTICE.mdの出力ファイルパス | `NOTICE.md` |
 | `--concurrency <N>` | 並行NuGet APIリクエスト数（1-16） | `4` |
 

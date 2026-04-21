@@ -158,21 +158,14 @@ internal sealed class GenerateCommand(
                 foreach (var pkg in packages)
                 {
                     NoticeEntry entry;
-                    if (pkg.Version is null)
+                    try
                     {
-                        entry = new NoticeEntry { Id = pkg.Id, };
+                        entry = await nugetClient.FetchAsync(pkg.Id, pkg.Version, cancellationToken)
+                            .ConfigureAwait(false);
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        try
-                        {
-                            entry = await nugetClient.FetchAsync(pkg.Id, pkg.Version, cancellationToken)
-                                .ConfigureAwait(false);
-                        }
-                        catch (Exception ex)
-                        {
-                            entry = new NoticeEntry { Id = pkg.Id, Version = pkg.Version, Error = ex.Message, };
-                        }
+                        entry = new NoticeEntry { Id = pkg.Id, Version = pkg.Version, Error = ex.Message, };
                     }
 
                     entries.Add(entry);
@@ -230,7 +223,7 @@ internal sealed class GenerateCommand(
         }
 
         // 4. NOTICE.md 書き出し
-        await noticeWriter.WriteAsync(settings.Output, entries, cancellationToken);
+        await noticeWriter.WriteAsync(settings.Output, entries, settings.NoVersion, cancellationToken);
         AnsiConsole.MarkupLine($"[green]✓[/] Generated: [bold]{settings.Output}[/]");
 
         return failed > 0 ? 2 : 0; // 2 = partial failure

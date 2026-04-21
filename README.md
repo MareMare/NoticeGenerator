@@ -119,7 +119,7 @@ cd sandbox
 |--------|-------------|---------|
 | `-p, --project <PATH>` | Path to the project or solution to analyze | `.` (current directory) |
 | `-s, --scope <SCOPE>` | Package scope: `all` (includes transitive) or `top` (top-level only) | `all` |
-| `--no-version` | Omit version from package identifiers (useful for grouping) | `false` |
+| `--no-version` | Removes version information from the generated NOTICE.md | `false` |
 | `-o, --output <FILE>` | Output file path for the generated NOTICE.md | `NOTICE.md` |
 | `--concurrency <N>` | Number of concurrent NuGet API requests (1-16) | `4` |
 
