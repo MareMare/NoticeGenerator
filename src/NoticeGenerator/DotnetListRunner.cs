@@ -133,8 +133,7 @@ internal sealed class DotnetListRunner : IDisposable
                    ?? throw new InvalidOperationException(
                        "dotnet list package returned empty or invalid JSON.");
 
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var packages = new List<PackageRef>();
+        var packages = new Dictionary<string, PackageRef>();
 
         foreach (var proj in root.Projects ?? [])
         {
@@ -150,25 +149,41 @@ internal sealed class DotnetListRunner : IDisposable
 
                 foreach (var pkg in candidates)
                 {
-                    if (string.IsNullOrWhiteSpace(pkg.Id))
-                    {
-                        continue;
-                    }
-
                     var key = noVersion ? pkg.Id : $"{pkg.Id}/{pkg.ResolvedVersion}";
-                    if (!seen.Add(key))
+                    if (packages.TryGetValue(key, out var existing))
                     {
-                        continue;
+                        // 既存エントリよりも新しいバージョンであれば上書きする
+                        if (CompareVersions(existing.Version, pkg.ResolvedVersion) < 0)
+                        {
+                            packages[key] = new PackageRef(pkg.Id, pkg.ResolvedVersion);
+                        }
                     }
-
-                    packages.Add(new PackageRef(
-                        pkg.Id,
-                        noVersion ? null : pkg.ResolvedVersion));
+                    else
+                    {
+                        packages.Add(key, new PackageRef(pkg.Id, pkg.ResolvedVersion));
+                    }
                 }
             }
         }
 
-        return [.. packages.OrderBy(p => p.Id, StringComparer.OrdinalIgnoreCase),];
+        return [.. packages.Values.OrderBy(p => p.Id, StringComparer.OrdinalIgnoreCase),];
+    }
+
+    /// <summary>
+    /// バージョン文字列を比較する。
+    /// System.Version でパースできない場合は StringComparer にフォールバック。
+    /// </summary>
+    /// <returns>
+    /// a &lt; b のとき負数、a == b のとき 0、a &gt; b のとき正数。
+    /// </returns>
+    private static int CompareVersions(string a, string b)
+    {
+        if (Version.TryParse(a, out var va) && Version.TryParse(b, out var vb))
+        {
+            return va.CompareTo(vb);
+        }
+
+        return StringComparer.OrdinalIgnoreCase.Compare(a, b);
     }
 
     // -------------------------------------------------------
@@ -258,8 +273,8 @@ file sealed class DotnetFramework
 file sealed class DotnetPackage
 {
     [JsonPropertyName("id")]
-    public string? Id { get; init; }
+    public required string Id { get; init; }
 
     [JsonPropertyName("resolvedVersion")]
-    public string? ResolvedVersion { get; init; }
+    public required string ResolvedVersion { get; init; }
 }
