@@ -51,7 +51,7 @@
     <EmbeddedResource Include="get-packages.ps1" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.6" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.7" />
     <PackageReference Include="NuGet.Packaging" Version="7.3.1" />
     <PackageReference Include="NuGet.Protocol" Version="7.3.1" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
