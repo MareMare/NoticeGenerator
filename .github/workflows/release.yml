@@ -21,7 +21,7 @@ jobs:
       - name: 💡 gh --version
         run: gh --version
       - name: 🛒 Checkout
-        uses: actions/checkout@v7.0.0
+        uses: actions/checkout@v7.0.1
       - name: ✨ Setup .NET
         uses: actions/setup-dotnet@v6
         with:
